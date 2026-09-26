@@ -1,0 +1,106 @@
+name: Release
+
+# YY.M.revision, computed by the shared action from the tag list. Nobody
+# hand-edits a version: the firmware gets it at build time as FL_FW_VERSION, so
+# there's nothing to commit, only the tag on the commit that was built.
+#
+# The release carries firelabs-pd-<version>.bin; firelabs-hass reads the latest
+# release and prefers the .bin named for the model, so this is what the Home
+# Assistant update entity installs.
+
+on:
+  workflow_dispatch:
+    inputs:
+      channel:
+        description: rc or stable
+        required: true
+        type: choice
+        options: [rc, stable]
+        default: rc
+      force-version:
+        description: Exact version to re-cut, no leading v. Leave empty to compute.
+        required: false
+        default: ""
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      # fetch-depth: 0 or compute-version cannot see the tag list.
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Refuse to release from anywhere but main
+        if: github.ref != 'refs/heads/main'
+        run: |
+          echo "::error::Release must be dispatched from main (got ${{ github.ref }})"
+          exit 1
+
+      - name: Compute version
+        id: version
+        uses: FireBall1725/workflows/actions/compute-version@v1
+        with:
+          channel: ${{ inputs.channel }}
+          force-version: ${{ inputs.force-version }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Cache PlatformIO
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.platformio
+            ~/.cache/pip
+          key: pio-${{ runner.os }}-${{ hashFiles('platformio.ini') }}
+
+      - name: Install PlatformIO
+        run: pip install platformio
+
+      - name: Build (pd)
+        env:
+          PLATFORMIO_BUILD_FLAGS: -DFL_FW_VERSION=\"${{ steps.version.outputs.version }}\"
+        run: pio run -e pd
+
+      - name: Check the version and the GDMA placement
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          grep -q "$VERSION" .pio/build/pd/firmware.bin || { echo "::error::$VERSION not in the image"; exit 1; }
+          nm=$(ls ~/.platformio/packages/toolchain-xtensa-esp-elf/bin/*-nm | head -1)
+          bad=$("$nm" .pio/build/pd/firmware.elf | grep -E ' (gdma_start|gdma_stop|gdma_reset|gdma_append|gdma_ahb_hal_start_with_desc|gdma_ahb_hal_stop|gdma_ahb_hal_reset|gdma_ahb_hal_append)$' | grep -v '^403' || true)
+          if [ -n "$bad" ]; then echo "::error::GDMA functions outside IRAM:"; echo "$bad"; exit 1; fi
+
+      - name: Generate release notes
+        id: changelog
+        uses: FireBall1725/workflows/actions/changelog@v1
+        with:
+          tag: ${{ steps.version.outputs.tag }}
+          since: ${{ inputs.channel == 'stable' && steps.version.outputs.previous-stable-tag || '' }}
+
+      - name: Tag and publish
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.version.outputs.tag }}
+          VERSION: ${{ steps.version.outputs.version }}
+          NOTES: ${{ steps.changelog.outputs.content }}
+          PRERELEASE: ${{ steps.version.outputs.is-prerelease }}
+        run: |
+          set -euo pipefail
+          cp .pio/build/pd/firmware.bin "firelabs-pd-${VERSION}.bin"
+          git tag "$TAG"
+          git push origin "$TAG"
+          args=()
+          if [ "$PRERELEASE" = "true" ]; then
+            args+=(--prerelease)
+          fi
+          gh release create "$TAG" "firelabs-pd-${VERSION}.bin" \
+            --title "$TAG" \
+            --notes "$NOTES" \
+            "${args[@]}"

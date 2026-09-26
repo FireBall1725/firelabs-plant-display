@@ -4,7 +4,11 @@
 
 // Brand strings live here, not in build_flags: the AP prefix has a space and
 // -D defines split on it at link time.
-#define FL_FW_VERSION  "0.1.1"
+// The version is CI's: release.yml passes -DFL_FW_VERSION="26.9.0". A local build
+// is none of the published channels, so it claims no version.
+#ifndef FL_FW_VERSION
+#define FL_FW_VERSION  "0.0.0-dev"
+#endif
 #define FL_MODEL       "PD"
 #define FL_AP_PREFIX   "FireLabs PD"
 #define FL_HOST_PREFIX "fl-pd"
