@@ -479,6 +479,19 @@ namespace Display {
 
   bool updating() { return updateMode; }
 
+  // What the panel is showing, as RGB565: the shown frame buffer, or the update
+  // screen regenerated line by line (it never touches the frame buffers).
+  uint8_t *captureFrame(bool &owned) {
+    owned = false;
+    if (!updateMode) return fbs[shown];
+    uint8_t *out = (uint8_t *)heap_caps_malloc(FB_BYTES, MALLOC_CAP_SPIRAM);
+    if (!out) return nullptr;
+    for (int y = 0; y < Display::HEIGHT; y += 20)
+      fillUpdateLines((uint16_t *)(out + y * Display::WIDTH * 2), y, 20);
+    owned = true;
+    return out;
+  }
+
   void trace(uint32_t stage, uint32_t arg) {
     traceStage = stage;
     traceArg = arg;

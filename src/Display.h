@@ -33,6 +33,8 @@ namespace Display {
   void setUpdateStatus(const char* text);  // the line under the bar, e.g. "70% · 1.2 of 1.7 MB"
   void setUpdateProgress(uint32_t done, uint32_t total);
   bool updating();
+  // RGB565 copy source of what's on screen; free it with heap_caps_free if owned.
+  uint8_t* captureFrame(bool& owned);
   void endUpdateScreen();
   // Debug: while the update screen is up, the refresh ISR prints stage/arg ~4x a second.
   void trace(uint32_t stage, uint32_t arg);

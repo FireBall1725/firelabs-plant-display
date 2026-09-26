@@ -4,6 +4,21 @@ Firmware for a wall or shelf display that shows your plants from Home Assistant:
 
 It runs on the Waveshare ESP32-S3-Touch-LCD-4.3 (800x480, touch). The display checks in with Home Assistant over a webhook once a minute and gets back everything it draws, so there's nothing to configure on the device beyond Wi-Fi.
 
+## Screenshots
+
+Captured straight from the panel's frame buffer, with sample plants.
+
+![Overview: three plants sorted by need, the first one pulsing red for water](docs/screenshots/water-now-pulse.gif)
+
+| | |
+|---|---|
+| ![A plant below its floor: water now, nine days since water](docs/screenshots/fern.png) | ![A plant falling toward its floor in about two days](docs/screenshots/calathea.png) |
+| Below its floor | Falling, floor in about two days |
+| ![A plant watered last night, the curve stepping up at the marker](docs/screenshots/basil.png) | ![A plant whose sensor hasn't reported for five hours](docs/screenshots/cactus.png) |
+| Watered last night | Sensor quiet for five hours |
+| ![The Wi-Fi sheet with restart and reset buttons](docs/screenshots/wifi.png) | ![The update screen at 70 percent](docs/screenshots/update.png) |
+| Wi-Fi and resets | Updating over Wi-Fi |
+
 ## What it shows
 
 - An overview of three plants per page, sorted by need. Swipe or tap the page dots for more, and it comes back to page one after a minute.

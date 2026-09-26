@@ -6,6 +6,7 @@
 #include "Branding.h"
 #include "FirelabsCore.h"
 #include "Display.h"
+#include "Ui.h"
 #include "Screen.h"
 #include "CheckIn.h"
 #include <WebServer.h>
@@ -23,6 +24,8 @@ static FirelabsCore* core_ = nullptr;
 static bool begun_ = false;
 static uint32_t rebootAt = 0;
 static int extraPlants_ = 0;
+static String debugBundle_;  // pending showcase bundle
+static bool frozen_ = false;   // a showcase bundle is on screen
 
 extern "C" int fl_lv_internal(void);
 extern "C" void fl_lv_set_internal(int on);
@@ -183,6 +186,16 @@ void WebUi::startOta(const String& url) { pullUrl = url; }
 
 int WebUi::extraPlants() { return extraPlants_; }
 
+bool WebUi::takeDebugBundle(String& json) {
+  if (!debugBundle_.length()) return false;
+  json = debugBundle_;
+  debugBundle_ = "";
+  frozen_ = true;
+  return true;
+}
+
+bool WebUi::bundleFrozen() { return frozen_; }
+
 static void servePage() { server.send_P(200, "text/html", CONFIG_HTML); }
 
 void WebUi::begin(Config& cfg, FirelabsCore& core) {
@@ -227,13 +240,48 @@ void WebUi::begin(Config& cfg, FirelabsCore& core) {
     server.send(200, "application/json", String("{\"extra\":") + extraPlants_ + "}");
   });
 
+  // The panel as raw RGB565 (800x480, little-endian): README screenshots.
+  server.on("/api/debug/screenshot", HTTP_GET, []() {
+    bool owned = false;
+    uint8_t* fb = Display::captureFrame(owned);
+    if (!fb) {
+      server.send(500, "text/plain", "no frame");
+      return;
+    }
+    const size_t len = Display::WIDTH * Display::HEIGHT * 2;
+    server.setContentLength(len);
+    server.send(200, "application/octet-stream", "");
+    for (size_t off = 0; off < len; off += 16384)
+      server.sendContent((const char*)fb + off, min((size_t)16384, len - off));
+    if (owned) heap_caps_free(fb);
+  });
+
+  // Showcase data: a bundle in the body replaces what check-ins bring until reboot.
+  server.on("/api/debug/bundle", HTTP_POST, []() {
+    debugBundle_ = server.arg("plain");
+    server.send(200, "application/json", "{\"ok\":1}");
+  });
+
+  // Holds the water-now pulse at ?opa= (0-255) for GIF frames; -1 lets it run.
+  server.on("/api/debug/pulse", HTTP_POST, []() {
+    Ui::debugPulse(server.arg("opa").toInt());
+    server.send(200, "application/json", "{\"ok\":1}");
+  });
+
+  // Switches screens: ?show=overview, wifi, or a plant name.
+  server.on("/api/debug/show", HTTP_POST, []() {
+    bool ok = Ui::debugShow(server.arg("show"));
+    server.send(ok ? 200 : 404, "application/json", ok ? "{\"ok\":1}" : "{\"error\":\"unknown\"}");
+  });
+
   // Shows the update screen at pct percent without updating; pct=-1 hides it.
   server.on("/api/debug/updatescreen", HTTP_POST, []() {
     int pct = server.arg("pct").toInt();
     if (pct < 0) Display::endUpdateScreen();
     else {
-      Display::beginUpdateScreen("Updating firmware", "Screen test");
-      Display::setUpdateProgress(pct, 100);
+      const size_t image = 1780768;  // a real release's size, so the status line reads true
+      Display::beginUpdateScreen("Downloading update", UPDATE_SUB);
+      otaProgress((image * min(pct, 100) + 99) / 100, image, "");
     }
     server.send(200, "application/json", "{\"ok\":1}");
   });

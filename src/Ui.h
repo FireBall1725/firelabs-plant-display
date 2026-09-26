@@ -24,4 +24,9 @@ void onWifiAction(std::function<void(WifiAction)> cb);
 
 // Tapping the grow light pill flips it on screen at once, then calls this.
 void onLampTap(std::function<void()> cb);
+
+#ifdef FL_DEBUG_PORTAL
+bool debugShow(const String& what);  // bench: "overview", "wifi" or a plant name
+void debugPulse(int opa);             // bench: hold the water-now pulse at opa; -1 releases
+#endif
 }
