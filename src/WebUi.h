@@ -12,5 +12,9 @@ void begin(Config& cfg, FirelabsCore& core);
 void loop();
 int extraPlants();
 // Fetch firmware from url and install it (runs from loop()).
-void startOta(const String& url);  // debug builds: test plants to append to each bundle
+void startOta(const String& url);
+// Debug builds: a showcase bundle posted to /api/debug/bundle, and whether one is up
+// (check-in bundles are then ignored until reboot).
+bool takeDebugBundle(String& json);
+bool bundleFrozen();  // debug builds: test plants to append to each bundle
 }

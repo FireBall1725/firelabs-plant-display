@@ -18,6 +18,11 @@
 #include "Ui.h"
 #include "WebUi.h"
 #include "FirelabsCore.h"
+
+// LVGL renders on the loop task. Drawing the detail card with the water-now pulse (a
+// clipped, rounded card under animated edges) overflowed Arduino's default 8 KB stack
+// ("Stack canary watchpoint triggered (loopTask)") the moment a thirsty plant was opened.
+SET_LOOP_TASK_STACK_SIZE(16 * 1024);
 #ifdef FL_DEMO
 #include "DemoBundle.h"
 #endif
@@ -199,9 +204,10 @@ void loop() {
   if (millis() - beatMs > 5000) {
     uint32_t frames, skips;
     Display::stats(frames, skips);
-    Serial.printf("[FL-PD] heartbeat: %lu loops/5s, %lu frames, %lu skipped fills, wifi %s, heap %u\n",
+    Serial.printf("[FL-PD] heartbeat: %lu loops/5s, %lu frames, %lu skipped fills, wifi %s, heap %u, stack free %u\n",
                   (unsigned long)loops, (unsigned long)frames, (unsigned long)skips,
-                  WiFi.isConnected() ? "sta" : (WiFi.getMode() & WIFI_AP ? "ap" : "off"), ESP.getFreeHeap());
+                  WiFi.isConnected() ? "sta" : (WiFi.getMode() & WIFI_AP ? "ap" : "off"), ESP.getFreeHeap(),
+                  (unsigned)uxTaskGetStackHighWaterMark(nullptr));
     beatMs = millis();
     loops = 0;
   }
@@ -229,7 +235,15 @@ void loop() {
   core.loop();
   WebUi::loop();
 
-  if (online && CheckIn::take(bundle)) {
+  String showcase;
+  if (WebUi::takeDebugBundle(showcase) && parseBundle(showcase, bundle)) {
+    syncClock(bundle.updated);
+    Screen::setLightSleep(false);
+    Ui::setBundle(bundle);
+  }
+  Bundle fresh;
+  if (online && CheckIn::take(fresh) && !WebUi::bundleFrozen()) {
+    bundle = std::move(fresh);
     syncClock(bundle.updated);
     Screen::setLightSleep(bundle.screenFollowsLight && bundle.hasLight && !bundle.lightOn);
     if (bundle.hasDisplay) Screen::apply(bundle.display, true);

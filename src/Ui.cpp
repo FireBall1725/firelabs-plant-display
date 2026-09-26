@@ -322,6 +322,9 @@ void makeChart(CardView& cv, lv_obj_t* parent, int w, int h) {
   lv_canvas_set_draw_buf(cv.canvas, cv.buf);
   lv_canvas_fill_bg(cv.canvas, Theme::card(), LV_OPA_COVER);
   lv_obj_set_clickable(cv.canvas, false);
+  // The chart labels are children of the canvas. A label running past the right edge
+  // made it scrollable and the chart drew offset, hiding the newest hours.
+  lv_obj_set_scrollable(cv.canvas, false);
 }
 
 void makeCard(CardView& cv, lv_obj_t* parent, bool detail, int chartW) {
@@ -457,9 +460,11 @@ void makeCard(CardView& cv, lv_obj_t* parent, bool detail, int chartW) {
 
 // The overlay covers the whole card, so each change redraws the card; eight steps per
 // half-pulse keeps that to ~11 redraws a second instead of every frame.
+int debugPulseOpa = -1;  // bench: >= 0 holds the pulse at this opacity (GIF frames)
+
 void pulseStep(void* var, int32_t v) {
   if (Display::isAsleep()) return;  // nothing to see, don't redraw
-  lv_opa_t stepped = (lv_opa_t)(v / 32 * 32 + 31);
+  lv_opa_t stepped = debugPulseOpa >= 0 ? (lv_opa_t)debugPulseOpa : (lv_opa_t)(v / 32 * 32 + 31);
   lv_obj_t** edges = (lv_obj_t**)var;
   if (lv_obj_get_style_bg_opa(edges[0], LV_PART_MAIN) == stepped) return;
   for (int i = 0; i < 4; i++) lv_obj_set_style_bg_opa(edges[i], stepped, 0);
@@ -657,7 +662,10 @@ void renderChart(CardView& cv, const Plant& p, float ymax) {
                                "WATERED " + upper(WEEKDAY[wall(p.watered).tm_wday]) + " " +
                                    hhmm(p.watered),
                                true);
-      lv_obj_set_pos(l, (int)x + 5, 8);
+      // Right of the line, or left of it when a recent watering leaves no room.
+      lv_obj_update_layout(l);
+      int lw = lv_obj_get_width(l);
+      lv_obj_set_pos(l, (int)x + 5 + lw <= w ? (int)x + 5 : (int)x - 5 - lw, 8);
     }
   }
 
@@ -699,6 +707,11 @@ void renderChart(CardView& cv, const Plant& p, float ymax) {
       lv_obj_t* l = chartLabel(cv, &font_b9, Theme::dimmer(),
                                upper(WEEKDAY[wall(m.second).tm_wday]), false);
       lv_obj_update_layout(l);
+      if (m.first + 3 + lv_obj_get_width(l) > w) {  // today's stub: no room for its name
+        cv.chartLabels.pop_back();
+        lv_obj_delete(l);
+        continue;
+      }
       lv_obj_set_pos(l, m.first + 3, h - 4 - lv_obj_get_height(l));
     }
   }
@@ -1400,5 +1413,36 @@ void onFactoryReset(std::function<void()> cb) { resetCb = cb; }
 void onLampTap(std::function<void()> cb) { lampCb = cb; }
 
 void onWifiAction(std::function<void(WifiAction)> cb) { wifiCb = cb; }
+
+#ifdef FL_DEBUG_PORTAL
+// Each bench call counts as a touch, so auto-dim or light sleep can't darken a capture.
+void debugPulse(int opa) {
+  debugPulseOpa = opa > 255 ? 255 : opa;
+  lv_display_trigger_activity(nullptr);
+}
+
+// Bench only: switch screens without touching the panel (for README screenshots).
+// "overview", "wifi", or a plant's name for its detail screen.
+bool debugShow(const String& what) {
+  lv_display_trigger_activity(nullptr);
+  closeSheet();
+  if (what == "overview") {
+    showOverview();
+    return true;
+  }
+  if (what == "wifi") {
+    showOverview();
+    openSheet();
+    return true;
+  }
+  for (const Plant& p : bundle.plants) {
+    if (p.name == what) {
+      showDetail(p.name);
+      return true;
+    }
+  }
+  return false;
+}
+#endif
 
 }  // namespace Ui
