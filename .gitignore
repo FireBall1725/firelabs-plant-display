@@ -1,0 +1,12 @@
+.pio/
+.vscode/
+lib/
+*.o
+.DS_Store
+managed_components/
+dependencies.lock
+sdkconfig.*
+sdkconfig.defaults
+CMakeLists.txt
+.dummy/
+__pycache__/

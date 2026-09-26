@@ -1,0 +1,67 @@
+name: build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  release:
+    types: [published]
+
+permissions:
+  contents: write
+
+jobs:
+  firmware:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # custom_sdkconfig makes pioarduino rebuild the framework libs (several minutes
+      # cold); the cache keys on platformio.ini, which holds that config.
+      - name: Cache PlatformIO
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.platformio
+            ~/.cache/pip
+          key: pio-${{ runner.os }}-${{ hashFiles('platformio.ini') }}
+
+      - name: Install PlatformIO
+        run: pip install platformio
+
+      - name: Build (pd)
+        run: pio run -e pd
+
+      # The release build must keep the GDMA control functions in IRAM, or every
+      # OTA crashes the panel ISR mid-erase (see scripts/gdma_iram_ld.py).
+      - name: Check GDMA functions are in IRAM
+        run: |
+          nm=$(ls ~/.platformio/packages/toolchain-xtensa-esp-elf/bin/*-nm | head -1)
+          bad=$("$nm" .pio/build/pd/firmware.elf | grep -E ' (gdma_start|gdma_stop|gdma_reset|gdma_append|gdma_ahb_hal_start_with_desc|gdma_ahb_hal_stop|gdma_ahb_hal_reset|gdma_ahb_hal_append)$' | grep -v '^403' || true)
+          if [ -n "$bad" ]; then echo "::error::GDMA functions outside IRAM:"; echo "$bad"; exit 1; fi
+
+      - name: Stage binary
+        run: |
+          mkdir -p dist
+          # GITHUB_REF_NAME is "<pr>/merge" on pull_request; flatten the slash so
+          # the cp target is a plain filename.
+          ref="${GITHUB_REF_NAME//\//-}"
+          cp .pio/build/pd/firmware.bin "dist/firelabs-pd-${ref}.bin"
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: firmware
+          path: dist/*.bin
+
+      # firelabs-hass reads the latest release and prefers the .bin named for the
+      # model ("pd"), so this is what the Home Assistant update entity installs.
+      - name: Attach to release
+        if: github.event_name == 'release'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*.bin
